@@ -89,6 +89,9 @@ var (
 )
 
 func main() {
+	/*
+	 * 把命令行参数解析到指定的变量里
+	 */
 	flag.Parse()
 	registerStores()
 
