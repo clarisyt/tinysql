@@ -148,6 +148,21 @@ func DecodeIndexKeyPrefix(key kv.Key) (tableID int64, indexID int64, indexValues
 	 *   5. understanding the coding rules is a prerequisite for implementing this function,
 	 *      you can learn it in the projection 1-2 course documentation.
 	 */
+	k := key
+	if len(key) <= prefixLen {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
+	}
+	key, tableID, err = codec.DecodeInt(key[tablePrefixLength:])
+	if nil != err {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
+	}
+
+	key = key[recordPrefixSepLength:]
+	key, indexID, err = codec.DecodeInt(key)
+	if nil != err {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
+	}
+	indexValues = key[:]
 	return tableID, indexID, indexValues, nil
 }
 
