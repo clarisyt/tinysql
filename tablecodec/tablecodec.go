@@ -98,7 +98,31 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
 	 *   5. understanding the coding rules is a prerequisite for implementing this function,
 	 *      you can learn it in the projection 1-2 course documentation.
 	 */
-	return
+	if len(key) <= prefixLen {
+		return 0, 0, errInvalidRecordKey.GenWithStack("invalid record key - %q", key)
+	}
+	k := key
+	if !hasTablePrefix(key) {
+		return 0, 0, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
+	}
+	key = key[tablePrefixLength:]
+	key, tableID, err = codec.DecodeInt(key)
+	if err != nil {
+		return 0, 0, errors.Trace(err)
+	}
+	if !hasRecordPrefixSep(key) {
+		return 0, 0, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
+	}
+	key = key[recordPrefixSepLength:]
+	if len(key) == 8 {
+		var intHandle int64
+		key, intHandle, err = codec.DecodeInt(key)
+		if err != nil {
+			return 0, 0, errors.Trace(err)
+		}
+		return tableID, intHandle, nil
+	}
+	return 0, 0, errInvalidRecordKey.GenWithStack("invalid record key - %q %v", k, err)
 }
 
 // appendTableIndexPrefix appends table index prefix  "t[tableID]_i".
@@ -148,22 +172,56 @@ func DecodeIndexKeyPrefix(key kv.Key) (tableID int64, indexID int64, indexValues
 	 *   5. understanding the coding rules is a prerequisite for implementing this function,
 	 *      you can learn it in the projection 1-2 course documentation.
 	 */
+	/*
 	k := key
 	if len(key) <= prefixLen {
 		return 0, 0, nil, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
 	}
 	key, tableID, err = codec.DecodeInt(key[tablePrefixLength:])
-	if nil != err {
+	if nil != err || tableID == 0 {
 		return 0, 0, nil, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
 	}
 
 	key = key[recordPrefixSepLength:]
 	key, indexID, err = codec.DecodeInt(key)
-	if nil != err {
+	if nil != err || indexID == 0 {
 		return 0, 0, nil, errInvalidRecordKey.GenWithStack("invalid record key - %q", k)
 	}
 	indexValues = key[:]
+	*/
+	k := key
+
+	tableID, indexID, isRecord, err := DecodeKeyHead(key)
+	if err != nil {
+		return 0, 0, nil, errors.Trace(err)
+	}
+	if isRecord {
+		err = errInvalidIndexKey.GenWithStack("invalid index key - %q", k)
+		return 0, 0, nil, err
+	}
+	indexValues = key[prefixLen+idLen:]
+
 	return tableID, indexID, indexValues, nil
+}
+
+// DecodeValuesBytesToStrings decode the raw bytes to strings for each columns.
+// FIXME: Without the schema information, we can only decode the raw kind of
+// the column. For instance, MysqlTime is internally saved as uint64.
+func DecodeValuesBytesToStrings(b []byte) ([]string, error) {
+	var datumValues []string
+	for len(b) > 0 {
+		remain, d, e := codec.DecodeOne(b)
+		if e != nil {
+			return nil, e
+		}
+		str, e1 := d.ToString()
+		if e1 != nil {
+			return nil, e
+		}
+		datumValues = append(datumValues, str)
+		b = remain
+	}
+	return datumValues, nil
 }
 
 // DecodeIndexKey decodes the key and gets the tableID, indexID, indexValues.
